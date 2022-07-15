@@ -1,0 +1,74 @@
+{% extends "layout.html" %}
+
+{% block navright %}
+{% if user %}
+<li>
+  <a href="{{ url_for('logout') }}">
+    <span class="glyphicon glyphicon-log-out" aria-hidden="true"></span>
+    Logout
+  </a>
+</li>
+{% else %}
+<li>
+  <a href="{{ url_for('login') }}">
+    <span class="glyphicon glyphicon-log-in" aria-hidden="true"></span>
+    Login
+  </a>
+</li>
+{% endif %}
+{% endblock %}
+
+{% block banner %}
+{% if not user %}
+<div class="jumbotron">
+  <div class="container">
+    <h1>zhmrtbot Maintenance</h1>
+
+    <p>Web interface allows trusted users to perform maintenance actions on zhmrtbot.</p>
+    <p>Please contact <code>@WhitePhosphorus</code> or <code>@Stang</code> for access. </p>
+    
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="row">
+  <div class="col-xs-12">
+{% if user %}
+<div class="alert alert-info" role="alert">
+    If you need to login via SSH: Please view <a href="https://wikitech.wikimedia.org/wiki/Tool:Zhmrtbot">document on Wikitech</a>.
+</div>
+<h2 class="sub-header">Delete file</h2>
+<form method="POST" action="{{ url_for('delete') }}">
+  <div class="form-group">
+    <label for="file">File to delete (with extension)</label>
+    <input type="text" class="form-control" id="file" name="file">
+  </div>
+  <button type="submit" class="btn btn-danger">Delete</button>
+</form>
+<h2 class="sub-header">Status</h2>
+<p>For restart: Page will be freezed for at most one minute, please be patient.</p>
+
+<table class="table table-condensed" style="width: auto;">
+    <tbody>
+        <tr>
+        <td style="border: none;">
+            <form method="POST" action="{{ url_for('status') }}">
+                <input type="hidden" name="type" value="query" />
+                <button type="submit" class="btn btn-info">Check status</button>
+            </form>
+        </td>
+        <td style="border: none;">
+            <form method="POST" action="{{ url_for('status') }}">
+                <input type="hidden" name="type" value="restart" />
+                <button type="submit" class="btn btn-danger">Restart</button>
+            </form>
+        </td>
+        </tr>
+    </tbody>
+</table>
+{% endif %}
+  </div>
+</div>
+{% endblock %}

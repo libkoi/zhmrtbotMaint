@@ -1,0 +1,10 @@
+{% extends "layout.html" %}
+
+{% block banner %}
+<div class="jumbotron">
+  <div class="container">
+    <h1>Access denied</h1>
+    <p>You have logged in as <code>{{ user }}</code>, but you don't have permission to access this page. </p>
+  </div>
+</div>
+{% endblock %}
