@@ -103,9 +103,11 @@ def login():
 def callback():
     ver = flask.request.args.get("oauth_verifier")
     token = flask.request.args.get("oauth_token")
-    response_qs = f"oauth_verifier={ver}&oauth_token={token}"
     request_token_key = flask.session.get("request_token_key", None)
     request_token_sec = flask.session.get("request_token_sec", None)
+    if [x for x in (ver, token, request_token_key, request_token_sec) if x is None]:
+        return flask.redirect(flask.url_for("portal"))
+    response_qs = f"oauth_verifier={ver}&oauth_token={token}"
     # this is just a hack, NOT recommend
     request_token = functions.process_request_token(
         f"oauth_token={request_token_key}&oauth_token_secret={request_token_sec}")
