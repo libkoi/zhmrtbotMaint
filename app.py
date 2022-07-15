@@ -5,6 +5,8 @@ import re
 import json
 import subprocess
 import flask
+import requests
+import urllib3
 from mwoauth import ConsumerToken, Handshaker, functions
 from secret import customer_token, secret_token, flask_seckey
 
@@ -16,7 +18,16 @@ HOME_PATH = "/data/project/zhmrtbot"
 BASH_PATH = "bin/zhmrtbot.sh"
 FILE_DIR = "public_html/file"
 
+k8s_cert_path = f"{HOME_PATH}/.toolskube/client.crt"
+k8s_key_path = f"{HOME_PATH}/.toolskube/client.key"
+k8s_cert = (k8s_cert_path, k8s_key_path)
+k8s_API_HOST = "https://k8s.svc.tools.eqiad1.wikimedia.cloud:6443"
+k8s_NS = "tool-zhmrtbot"
+k8s_zhmrtbot_name = "zhmrtbot.bot"
+
+
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 consumer_token = ConsumerToken(customer_token, secret_token)
 handshaker = Handshaker(MW_URL, consumer_token)
@@ -27,6 +38,42 @@ def is_trusted(_user: str):
     with open("user.json", "r", encoding="utf-8") as f:
         ACL = json.load(f)
     return _user in ACL["trusted"]
+
+# Several useful URLs:
+# https://docs.okd.io/3.6/rest_api/kubernetes_v1.html
+# https://kubernetes.io/docs/tasks/run-application/access-api-from-pod/
+# https://kubernetes.io/docs/reference/access-authn-authz/authentication/
+# https://stackoverflow.com/questions/47935675/
+def k8s_get_pod_name():
+    url_pods = f"{k8s_API_HOST}/api/v1/namespaces/{k8s_NS}/pods"
+    pods_r = json.loads(requests.get(url_pods, cert=k8s_cert, verify=False).text)
+    ret = []
+    for pod in pods_r["items"]:
+        if pod["metadata"]["labels"]["name"] == k8s_zhmrtbot_name:
+            ret.append(pod["metadata"]["name"])
+    return ret
+
+def k8s_bot_status():
+    bot_name_l = k8s_get_pod_name()
+    ret = []
+    if len(bot_name_l) == 1:
+        bot_info = f"{k8s_API_HOST}/api/v1/namespaces/{k8s_NS}/pods/{bot_name_l[0]}"
+        bot_info_r = json.loads(requests.get(bot_info, cert=k8s_cert, verify=False).text)
+        ret.append(bot_info_r)
+    if len(bot_name_l) > 1: # A pod is being terminated now!
+        for bot in bot_name_l:
+            bot_info = f"{k8s_API_HOST}/api/v1/namespaces/{k8s_NS}/pods/{bot}"
+            bot_info_r = json.loads(requests.get(bot_info, cert=k8s_cert, verify=False).text)
+            ret.append(bot_info_r)
+    return ret
+
+def k8s_pod_del():
+    bot_name_l = k8s_get_pod_name()
+    if len(bot_name_l) != 1:
+        return -1
+    url = f"{k8s_API_HOST}/api/v1/namespaces/{k8s_NS}/pods/{bot_name_l[0]}"
+    requests.delete(url, cert=k8s_cert, verify=False)
+    return 0
 
 @app.route('/')
 def hello():
@@ -70,21 +117,27 @@ def status():
         return flask.redirect(flask.url_for("denied"))
     todo = flask.request.form["type"]
     if todo == "query":
-        with subprocess.Popen([f"{HOME_PATH}/{BASH_PATH}", "status"],
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE) as process:
-            out = process.stdout.read().decode("utf-8")
-            err = process.stderr.read().decode("utf-8")
-            if err == "":
-                return flask.render_template("status.html", out=out)
-            return flask.render_template("status.html", out=out, err=err)
-    elif todo == "restart":
-        with subprocess.Popen([f"{HOME_PATH}/{BASH_PATH}", "restart"],
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE) as process:
-            out = process.stdout.read().decode("utf-8")
-            err = process.stderr.read().decode("utf-8")
-            if err == "":
-                return flask.render_template("status.html", out=out)
-            return flask.render_template("status.html", out=out, err=err)
+        out = ""
+        notice = ""
+        out_dict_l = k8s_bot_status()
+        if len(out_dict_l) == 1:
+            out = json.dumps(out_dict_l[0], indent=4)
+        if len(out_dict_l) > 1:
+            for o in out_dict_l:
+                out += json.dumps(o, indent=4)
+            notice = "Warning: A pod is being terminated now!"
+        if out == "":
+            out = "An unknown error occured!"
+        if notice == "":
+            notice = None
+        return flask.render_template("status.html", out=out, notice=notice)
+    if todo == "restart":
+        stat = k8s_pod_del()
+        out = ""
+        if stat == -1:
+            out = "A pod is being terminated now, please try again later."
+        out = "Request sent, please wait for at most one minute."
+        return flask.render_template("status.html", out=out)
     return flask.redirect(flask.url_for("portal"))
 
 @app.route("/delete", methods=["GET"])

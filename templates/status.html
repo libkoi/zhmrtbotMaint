@@ -8,8 +8,8 @@
 </div>
 
 <div class="well">
+    {% if notice %}<pre>{{ notice }}</pre>{% endif %}
     <pre>{{ out }}</pre>
-    {% if err %}<pre>{{ err }}</pre>{% endif %}
 </div>
 
 <button onclick="location.href='/admin';" class="btn btn-info">Return</button>
