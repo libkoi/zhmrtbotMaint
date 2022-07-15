@@ -4,7 +4,9 @@ import os
 import re
 import json
 import subprocess
+from datetime import datetime
 import flask
+from flask_htmlmin import HTMLMIN
 import requests
 import urllib3
 from mwoauth import ConsumerToken, Handshaker, functions
@@ -12,11 +14,14 @@ from secret import customer_token, secret_token, flask_seckey
 
 
 app = flask.Flask(__name__)
+app.config['MINIFY_HTML'] = True
 app.secret_key = flask_seckey
 MW_URL = "https://meta.wikimedia.org/w/index.php"
+MWOAUTH_UA = "zhmrtACL/1.0, tool-zhmrtbot, Toolforge"
 HOME_PATH = "/data/project/zhmrtbot"
 BASH_PATH = "bin/zhmrtbot.sh"
 FILE_DIR = "public_html/file"
+LOG_PATH = f"{HOME_PATH}/www/python/audit.log"
 
 k8s_cert_path = f"{HOME_PATH}/.toolskube/client.crt"
 k8s_key_path = f"{HOME_PATH}/.toolskube/client.key"
@@ -28,9 +33,10 @@ k8s_zhmrtbot_name = "zhmrtbot.bot"
 
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+htmlmin = HTMLMIN(app)
 
 consumer_token = ConsumerToken(customer_token, secret_token)
-handshaker = Handshaker(MW_URL, consumer_token)
+handshaker = Handshaker(MW_URL, consumer_token, user_agent=MWOAUTH_UA)
 
 
 def is_trusted(_user: str):
@@ -104,6 +110,15 @@ def delete():
         err = process.stderr.read().decode("utf-8")
         if err == "":
             flask.flash(f'Deleted file "{file_name}"', "success")
+            curts = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+            new = f'{curts} "{user}" deleted file "{file_name}"\n'
+            if not os.path.isfile(LOG_PATH):
+                with open(LOG_PATH, 'w', encoding="utf-8") as fp:
+                    pass
+            with open(LOG_PATH, "r+", encoding="utf-8") as fp:
+                content = fp.read()
+                fp.seek(0)
+                fp.write(new + content)
             return flask.redirect(flask.url_for("portal"))
         flask.flash(err, "danger")
         return flask.redirect(flask.url_for("portal"))
@@ -134,11 +149,40 @@ def status():
     if todo == "restart":
         stat = k8s_pod_del()
         out = ""
-        if stat == -1:
+        if stat == 0:
+            curts = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+            new = f'{curts} "{user}" restarted service "{k8s_zhmrtbot_name}"\n'
+            if not os.path.isfile(LOG_PATH):
+                with open(LOG_PATH, 'w', encoding="utf-8") as fp:
+                    pass
+            with open(LOG_PATH, "r+", encoding="utf-8") as fp:
+                content = fp.read()
+                fp.seek(0)
+                fp.write(new + content)
+            out = "Request sent, please wait for at most one minute."
+        else:
             out = "A pod is being terminated now, please try again later."
-        out = "Request sent, please wait for at most one minute."
         return flask.render_template("status.html", out=out)
     return flask.redirect(flask.url_for("portal"))
+
+@app.route("/audit")
+def audit():
+    user = flask.session.get("u", None)
+    if not user:
+        return flask.redirect(flask.url_for("portal"))
+    if not is_trusted(user):
+        return flask.redirect(flask.url_for("denied"))
+    log = ""
+    if not os.path.isfile(LOG_PATH):
+        log = "No audit log found"
+    else:
+        with open(LOG_PATH, "r", encoding="utf-8") as fp:
+            lcnt = len(fp.readlines())
+            fp.seek(0)
+            ll = [next(fp) for _ in range(min(lcnt, 50))]
+            for l in ll:
+                log += l
+    return flask.render_template("audit.html", log=log)
 
 @app.route("/delete", methods=["GET"])
 @app.route("/status", methods=["GET"])
@@ -159,6 +203,7 @@ def callback():
     request_token_key = flask.session.get("request_token_key", None)
     request_token_sec = flask.session.get("request_token_sec", None)
     if [x for x in (ver, token, request_token_key, request_token_sec) if x is None]:
+        flask.session.clear()
         return flask.redirect(flask.url_for("portal"))
     response_qs = f"oauth_verifier={ver}&oauth_token={token}"
     # this is just a hack, NOT recommend
@@ -185,3 +230,6 @@ def denied():
     if user:
         return flask.render_template("403.html", user=user)
     return flask.redirect(flask.url_for("portal"))
+
+if __name__ == "__main__":
+    app.run()

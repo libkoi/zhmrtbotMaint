@@ -39,7 +39,9 @@
 <div class="alert alert-info" role="alert">
     If you need to login via SSH: Please view <a href="https://wikitech.wikimedia.org/wiki/Tool:Zhmrtbot">document on Wikitech</a>.
 </div>
-<h2 class="sub-header">Delete file</h2>
+<div class="page-header">
+  <h1>Delete file</h1>
+</div>
 <form method="POST" action="{{ url_for('delete') }}">
   <div class="form-group">
     <label for="file">File to delete (with extension)</label>
@@ -48,25 +50,26 @@
   <button type="submit" class="btn btn-danger">Delete</button>
 </form>
 
-<h2 class="sub-header">Status</h2>
-<table class="table table-condensed" style="width: auto;">
-    <tbody>
-        <tr>
-        <td style="border: none;">
-            <form method="POST" action="{{ url_for('status') }}">
-                <input type="hidden" name="type" value="query" />
-                <button type="submit" class="btn btn-info">Check status</button>
-            </form>
-        </td>
-        <td style="border: none;">
-            <form method="POST" action="{{ url_for('status') }}">
-                <input type="hidden" name="type" value="restart" />
-                <button type="submit" class="btn btn-danger">Restart</button>
-            </form>
-        </td>
-        </tr>
-    </tbody>
-</table>
+<div class="page-header">
+  <h1>Status</h1>
+</div>
+<div class="btn-toolbar" role="toolbar" aria-label="status button groups">
+  <div class="btn-group" role="group" aria-label="query group">
+    <form method="POST" action="{{ url_for('status') }}">
+      <input type="hidden" name="type" value="query" />
+      <button type="submit" class="btn btn-info">Check status</button>
+    </form>
+  </div>
+  <div class="btn-group" role="group" aria-label="audit group">
+    <button onclick="location.href='/audit';" class="btn btn-warning">Audit</button>
+  </div>
+  <div class="btn-group" role="group" aria-label="restart group">
+    <form method="POST" action="{{ url_for('status') }}">
+      <input type="hidden" name="type" value="restart" />
+      <button type="submit" class="btn btn-danger">Restart</button>
+    </form>
+  </div>
+</div>
 {% endif %}
   </div>
 </div>
