@@ -34,7 +34,7 @@ def hello():
 
 @app.route("/file/<name>")
 def show(name: str):
-    return flask.send_from_directory(f"{HOME_PATH}/public_html/file", name, mimetype="image/jpeg")
+    return flask.send_from_directory(f"{HOME_PATH}/{FILE_DIR}", name, mimetype="image/jpeg")
 
 @app.route("/admin", methods=["GET"])
 def portal():
