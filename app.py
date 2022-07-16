@@ -10,12 +10,15 @@ from flask_htmlmin import HTMLMIN
 import requests
 import urllib3
 from mwoauth import ConsumerToken, Handshaker, functions
-from secret import customer_token, secret_token, flask_seckey
+from secret import customer_token, secret_token
 
 
 app = flask.Flask(__name__)
-app.config['MINIFY_HTML'] = True
-app.secret_key = flask_seckey
+app.config["MINIFY_HTML"] = True
+# "secret_key" is used by Flask for session feature.
+# https://flask.palletsprojects.com/en/0.12.x/quickstart/#sessions
+# https://stackoverflow.com/questions/34902378
+app.secret_key = os.urandom(40).hex()
 MW_URL = "https://meta.wikimedia.org/w/index.php"
 MWOAUTH_UA = "zhmrtACL/1.0, tool-zhmrtbot, Toolforge"
 HOME_PATH = "/data/project/zhmrtbot"
@@ -73,6 +76,20 @@ def k8s_bot_status():
             ret.append(bot_info_r)
     return ret
 
+def k8s_bot_log():
+    bot_name_l = k8s_get_pod_name()
+    ret = ""
+    if len(bot_name_l) == 1:
+        bot_info = f"{k8s_API_HOST}/api/v1/namespaces/{k8s_NS}/pods/{bot_name_l[0]}/log"
+        bot_info_r = requests.get(bot_info, cert=k8s_cert, verify=False).text
+        # How to remove the ANSI escape sequences from a string
+        # https://stackoverflow.com/questions/14693701/
+        ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+        ret = ansi_escape.sub("", bot_info_r)
+    if ret == "":
+        ret = None
+    return ret
+
 def k8s_pod_del():
     bot_name_l = k8s_get_pod_name()
     if len(bot_name_l) != 1:
@@ -81,7 +98,8 @@ def k8s_pod_del():
     requests.delete(url, cert=k8s_cert, verify=False)
     return 0
 
-@app.route('/')
+
+@app.route("/")
 def hello():
     return "<h1>200</h1>"
 
@@ -113,7 +131,7 @@ def delete():
             curts = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
             new = f'{curts} "{user}" deleted file "{file_name}"\n'
             if not os.path.isfile(LOG_PATH):
-                with open(LOG_PATH, 'w', encoding="utf-8") as fp:
+                with open(LOG_PATH, "w", encoding="utf-8") as fp:
                     pass
             with open(LOG_PATH, "r+", encoding="utf-8") as fp:
                 content = fp.read()
@@ -123,37 +141,23 @@ def delete():
         flask.flash(err, "danger")
         return flask.redirect(flask.url_for("portal"))
 
-@app.route("/status", methods=["POST"])
-def status():
+@app.route("/restart", methods=["POST"])
+def bot_restart():
     user = flask.session.get("u", None)
     if not user:
         return flask.redirect(flask.url_for("portal"))
     if not is_trusted(user):
         return flask.redirect(flask.url_for("denied"))
     todo = flask.request.form["type"]
-    if todo == "query":
-        out = ""
-        notice = ""
-        out_dict_l = k8s_bot_status()
-        if len(out_dict_l) == 1:
-            out = json.dumps(out_dict_l[0], indent=4)
-        if len(out_dict_l) > 1:
-            for o in out_dict_l:
-                out += json.dumps(o, indent=4)
-            notice = "Warning: A pod is being terminated now!"
-        if out == "":
-            out = "An unknown error occured!"
-        if notice == "":
-            notice = None
-        return flask.render_template("status.html", out=out, notice=notice)
     if todo == "restart":
         stat = k8s_pod_del()
         out = ""
+        title = "Success"
         if stat == 0:
             curts = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
             new = f'{curts} "{user}" restarted service "{k8s_zhmrtbot_name}"\n'
             if not os.path.isfile(LOG_PATH):
-                with open(LOG_PATH, 'w', encoding="utf-8") as fp:
+                with open(LOG_PATH, "w", encoding="utf-8") as fp:
                     pass
             with open(LOG_PATH, "r+", encoding="utf-8") as fp:
                 content = fp.read()
@@ -162,8 +166,43 @@ def status():
             out = "Request sent, please wait for at most one minute."
         else:
             out = "A pod is being terminated now, please try again later."
-        return flask.render_template("status.html", out=out)
+            title = "Failed"
+        return flask.render_template("log.html", title=title, log=out)
     return flask.redirect(flask.url_for("portal"))
+
+@app.route("/status")
+def bot_status():
+    user = flask.session.get("u", None)
+    if not user:
+        return flask.redirect(flask.url_for("portal"))
+    if not is_trusted(user):
+        return flask.redirect(flask.url_for("denied"))
+    out = ""
+    notice = ""
+    out_dict_l = k8s_bot_status()
+    if len(out_dict_l) == 1:
+        out = json.dumps(out_dict_l[0], indent=4)
+    if len(out_dict_l) > 1:
+        for o in out_dict_l:
+            out += json.dumps(o, indent=4)
+        notice = "Warning: A pod is being terminated now!"
+    if out == "":
+        out = "An unknown error occured!"
+    if notice == "":
+        notice = None
+    return flask.render_template("log.html", title="Status", log=out, notice=notice)
+
+@app.route("/log")
+def bot_log():
+    user = flask.session.get("u", None)
+    if not user:
+        return flask.redirect(flask.url_for("portal"))
+    if not is_trusted(user):
+        return flask.redirect(flask.url_for("denied"))
+    log = k8s_bot_log()
+    if not log:
+        log = "A pod is being terminated now, please try again later."
+    return flask.render_template("log.html", title="Pod logs (UTC)", log=log)
 
 @app.route("/audit")
 def audit():
@@ -182,10 +221,10 @@ def audit():
             ll = [next(fp) for _ in range(min(lcnt, 50))]
             for l in ll:
                 log += l
-    return flask.render_template("audit.html", log=log)
+    return flask.render_template("log.html", title="Audit logs (UTC)", log=log)
 
 @app.route("/delete", methods=["GET"])
-@app.route("/status", methods=["GET"])
+@app.route("/restart", methods=["GET"])
 def wrong_method():
     return flask.redirect(flask.url_for("portal"))
 

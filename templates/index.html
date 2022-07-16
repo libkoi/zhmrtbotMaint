@@ -55,10 +55,10 @@
 </div>
 <div class="btn-toolbar" role="toolbar" aria-label="status button groups">
   <div class="btn-group" role="group" aria-label="query group">
-    <form method="POST" action="{{ url_for('status') }}">
-      <input type="hidden" name="type" value="query" />
-      <button type="submit" class="btn btn-info">Check status</button>
-    </form>
+    <button onclick="location.href='/status';" class="btn btn-info">Check status</button>
+  </div>
+  <div class="btn-group" role="group" aria-label="log group">
+    <button onclick="location.href='/log';" class="btn btn-info">Pod log</button>
   </div>
   <div class="btn-group" role="group" aria-label="audit group">
     <button onclick="location.href='/audit';" class="btn btn-warning">Audit</button>

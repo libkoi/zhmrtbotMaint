@@ -4,12 +4,12 @@
 <div class="row">
   <div class="col-xs-12">
 <div class="page-header">
-    <h1>Status</h1>
+    <h1>{{ title }}</h1>
 </div>
 
 <div class="well">
     {% if notice %}<pre>{{ notice }}</pre>{% endif %}
-    <pre>{{ out }}</pre>
+    <pre>{{ log }}</pre>
 </div>
 
 <button onclick="location.href='/admin';" class="btn btn-info">Return</button>
