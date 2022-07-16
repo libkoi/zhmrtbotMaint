@@ -64,7 +64,7 @@
     <button onclick="location.href='/audit';" class="btn btn-warning">Audit</button>
   </div>
   <div class="btn-group" role="group" aria-label="restart group">
-    <form method="POST" action="{{ url_for('status') }}">
+    <form method="POST" action="{{ url_for('bot_restart') }}">
       <input type="hidden" name="type" value="restart" />
       <button type="submit" class="btn btn-danger">Restart</button>
     </form>
