@@ -1,5 +1,6 @@
 # Some code snippets inspired by tool-phab-ban
 # https://phabricator.wikimedia.org/source/tool-phab-ban
+import functools
 import os
 import re
 import json
@@ -42,11 +43,35 @@ consumer_token = ConsumerToken(customer_token, secret_token)
 handshaker = Handshaker(MW_URL, consumer_token, user_agent=MWOAUTH_UA)
 
 
-def is_trusted(_user: str):
-    ACL = {}
-    with open("user.json", "r", encoding="utf-8") as f:
-        ACL = json.load(f)
-    return _user in ACL["trusted"]
+def login_required(f):
+    @functools.wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not flask.session.get("u", None):
+            return flask.redirect(flask.url_for("portal"))
+        return f(*args, **kwargs)
+    return decorated_function
+
+def trusted_required(f):
+    @functools.wraps(f)
+    def decorated_function(*args, **kwargs):
+        ACL = {}
+        with open("user.json", "r", encoding="utf-8") as f:
+            ACL = json.load(f)
+        if flask.session.get("u", None) not in ACL["trusted"]:
+            return flask.redirect(flask.url_for("denied"))
+        return f(*args, **kwargs)
+    return decorated_function
+
+def log_audit(msg):
+    curts = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    new = f'{curts} {msg}\n'
+    if not os.path.isfile(LOG_PATH):
+        with open(LOG_PATH, "w", encoding="utf-8") as fp:
+            pass
+    with open(LOG_PATH, "r+", encoding="utf-8") as fp:
+        content = fp.read()
+        fp.seek(0)
+        fp.write(new + content)
 
 # Several useful URLs:
 # https://docs.okd.io/3.6/rest_api/kubernetes_v1.html
@@ -101,7 +126,7 @@ def k8s_pod_del():
 
 @app.route("/")
 def hello():
-    return "<h1>200</h1>"
+    return "200"
 
 @app.route("/file/<name>")
 def show(name: str):
@@ -113,12 +138,10 @@ def portal():
     return flask.render_template("index.html", user=user)
 
 @app.route("/delete", methods=["POST"])
+@login_required
+@trusted_required
 def delete():
     user = flask.session.get("u", None)
-    if not user:
-        return flask.redirect(flask.url_for("portal"))
-    if not is_trusted(user):
-        return flask.redirect(flask.url_for("denied"))
     file_name = flask.request.form["file"].strip()
     if(not re.match(r"^[a-zA-Z0-9\.]*$", file_name) or re.match(r"^\.*$", file_name)):
         flask.flash("Illegal input", "danger")
@@ -128,41 +151,25 @@ def delete():
         err = process.stderr.read().decode("utf-8")
         if err == "":
             flask.flash(f'Deleted file "{file_name}"', "success")
-            curts = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-            new = f'{curts} "{user}" deleted file "{file_name}"\n'
-            if not os.path.isfile(LOG_PATH):
-                with open(LOG_PATH, "w", encoding="utf-8") as fp:
-                    pass
-            with open(LOG_PATH, "r+", encoding="utf-8") as fp:
-                content = fp.read()
-                fp.seek(0)
-                fp.write(new + content)
+            log_audit(f'"{user}" deleted file "{file_name}"')
             return flask.redirect(flask.url_for("portal"))
         flask.flash(err, "danger")
         return flask.redirect(flask.url_for("portal"))
 
 @app.route("/restart", methods=["POST"])
+@login_required
+@trusted_required
 def bot_restart():
     user = flask.session.get("u", None)
     if not user:
         return flask.redirect(flask.url_for("portal"))
-    if not is_trusted(user):
-        return flask.redirect(flask.url_for("denied"))
     todo = flask.request.form["type"]
     if todo == "restart":
         stat = k8s_pod_del()
         out = ""
         title = "Success"
         if stat == 0:
-            curts = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-            new = f'{curts} "{user}" restarted service "{k8s_zhmrtbot_name}"\n'
-            if not os.path.isfile(LOG_PATH):
-                with open(LOG_PATH, "w", encoding="utf-8") as fp:
-                    pass
-            with open(LOG_PATH, "r+", encoding="utf-8") as fp:
-                content = fp.read()
-                fp.seek(0)
-                fp.write(new + content)
+            log_audit(f'"{user}" restarted service "{k8s_zhmrtbot_name}"')
             out = "Request sent, please wait for at most one minute."
         else:
             out = "A pod is being terminated now, please try again later."
@@ -171,12 +178,11 @@ def bot_restart():
     return flask.redirect(flask.url_for("portal"))
 
 @app.route("/status")
+@login_required
 def bot_status():
     user = flask.session.get("u", None)
     if not user:
         return flask.redirect(flask.url_for("portal"))
-    if not is_trusted(user):
-        return flask.redirect(flask.url_for("denied"))
     out = ""
     notice = ""
     out_dict_l = k8s_bot_status()
@@ -193,24 +199,22 @@ def bot_status():
     return flask.render_template("log.html", title="Status", log=out, notice=notice)
 
 @app.route("/log")
+@login_required
 def bot_log():
     user = flask.session.get("u", None)
     if not user:
         return flask.redirect(flask.url_for("portal"))
-    if not is_trusted(user):
-        return flask.redirect(flask.url_for("denied"))
     log = k8s_bot_log()
     if not log:
         log = "A pod is being terminated now, please try again later."
     return flask.render_template("log.html", title="Pod logs (UTC)", log=log)
 
 @app.route("/audit")
+@login_required
 def audit():
     user = flask.session.get("u", None)
     if not user:
         return flask.redirect(flask.url_for("portal"))
-    if not is_trusted(user):
-        return flask.redirect(flask.url_for("denied"))
     log = ""
     if not os.path.isfile(LOG_PATH):
         log = "No audit log found"
@@ -253,9 +257,7 @@ def callback():
     ident = handshaker.identify(access_token)
     user = ident.get("username")
     flask.session["u"] = user
-    if is_trusted(user):
-        return flask.redirect(flask.url_for("portal"))
-    return flask.redirect(flask.url_for("denied"))
+    return flask.redirect(flask.url_for("portal"))
 
 @app.route("/logout")
 def logout():
@@ -263,12 +265,11 @@ def logout():
     return flask.redirect(flask.url_for("portal"))
 
 @app.route("/403")
+@login_required
 def denied():
     user = flask.session.get("u", None)
-    flask.session.clear()
-    if user:
-        return flask.render_template("403.html", user=user)
-    return flask.redirect(flask.url_for("portal"))
+    log_audit(f'"{user}" tried to perform a restricted action but failed.')
+    return flask.render_template("403.html", user=user)
 
 if __name__ == "__main__":
     app.run()
