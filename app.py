@@ -55,9 +55,11 @@ def trusted_required(f):
     @functools.wraps(f)
     def decorated_function(*args, **kwargs):
         ACL = {}
-        with open("user.json", "r", encoding="utf-8") as f:
-            ACL = json.load(f)
-        if flask.session.get("u", None) not in ACL["trusted"]:
+        with open("user.json", "r", encoding="utf-8") as fp:
+            ACL = json.load(fp)
+        user = flask.session.get("u", None)
+        if not user in ACL["trusted"]:
+            log_audit(f'"{user}" tried to perform a restricted action but failed.')
             return flask.redirect(flask.url_for("denied"))
         return f(*args, **kwargs)
     return decorated_function
@@ -268,7 +270,6 @@ def logout():
 @login_required
 def denied():
     user = flask.session.get("u", None)
-    log_audit(f'"{user}" tried to perform a restricted action but failed.')
     return flask.render_template("403.html", user=user)
 
 if __name__ == "__main__":
