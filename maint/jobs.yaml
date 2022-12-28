@@ -1,0 +1,5 @@
+- name: purge-files
+  command: /data/project/zhmrtbot/bin/purge_files.sh
+  image: tf-bullseye-std
+  schedule: "33 6 * * *"
+  emails: onfailure

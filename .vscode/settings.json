@@ -1,0 +1,8 @@
+{
+    "python.linting.pylintEnabled": true,
+    "python.linting.enabled": true,
+    "python.linting.pylintCategorySeverity.refactor":"Information",
+    "python.linting.pylintArgs": [
+        "--disable=C0103,C0114,C0115,C0116,W0401,R0801"
+    ]
+}
