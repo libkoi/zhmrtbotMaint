@@ -85,8 +85,9 @@ def k8s_get_pod_name():
     pods_r = json.loads(requests.get(url_pods, cert=k8s_cert, verify=False).text)
     ret = []
     for pod in pods_r["items"]:
-        if pod["metadata"]["labels"]["app.kubernetes.io/name"] == k8s_zhmrtbot_name:
-            ret.append(pod["metadata"]["name"])
+        if "app.kubernetes.io/name" in pod["metadata"]["labels"]:
+            if pod["metadata"]["labels"]["app.kubernetes.io/name"] == k8s_zhmrtbot_name:
+                ret.append(pod["metadata"]["name"])
     return ret
 
 def k8s_bot_status():
